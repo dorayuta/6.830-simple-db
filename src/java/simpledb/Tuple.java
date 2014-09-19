@@ -12,7 +12,8 @@ import java.util.Iterator;
 public class Tuple implements Serializable {
 
     private static final long serialVersionUID = 1L;
-
+    private final TupleDesc td;
+    
     /**
      * Create a new tuple with the specified schema (type).
      * 
@@ -21,7 +22,9 @@ public class Tuple implements Serializable {
      *            instance with at least one field.
      */
     public Tuple(TupleDesc td) {
-        // some code goes here
+        // TODO - lab1
+    	this.td = td;
+    	
     }
 
     /**
