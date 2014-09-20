@@ -138,7 +138,8 @@ public class TupleDesc implements Serializable {
     public int fieldNameToIndex(String name) throws NoSuchElementException {
         
     	for (int i=0; i < this.tdSize; i++){
-        	if (this.getFieldName(i).equals(name)){
+    		String fieldName = this.getFieldName(i);
+        	if (fieldName != null && fieldName.equals(name)){
         		return i;
         	}
         }
@@ -223,7 +224,12 @@ public class TupleDesc implements Serializable {
      * @return String describing this descriptor.
      */
     public String toString() {
-    	// TODO
-        return "";
+    	String fieldFormat = "%s[%d](%s[%d])";
+    	StringBuilder sb = new StringBuilder();
+    	for (int i=0; i<this.tdItemList.size(); i++){
+    		TDItem tditem = tdItemList.get(i);
+    		sb.append(String.format(fieldFormat, tditem.getFieldType().toString(), i, tditem.getFieldName(), i));
+    	}
+        return sb.toString();
     }
 }
