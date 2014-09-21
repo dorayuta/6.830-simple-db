@@ -37,7 +37,11 @@ public class HeapPageId implements PageId {
      * @see BufferPool
      */
     public int hashCode() {
-    	return Integer.parseInt("" + tableId + pgNo);
+    	// a hashcode using the first 16 bits of tableId
+    	// and last 16 bits of pgNo.
+    	int prefix = (tableId << 16);
+    	int suffix = (pgNo >> 16);
+    	return prefix + suffix;
     }
 
     /**
