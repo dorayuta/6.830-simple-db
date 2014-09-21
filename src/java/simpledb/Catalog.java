@@ -17,13 +17,18 @@ import java.util.concurrent.ConcurrentHashMap;
  * @Threadsafe
  */
 public class Catalog {
-
+	
+	private final Map<String, DbFile> dbFileMap; // Map tableName to DBFile 
+	private final Map<Integer, String> tableNameMap; // Map tableId to tableName
+	private final Map<String, String> pkeyFieldMap; // Map tableName to pkeyField of table.
     /**
      * Constructor.
      * Creates a new, empty catalog.
      */
     public Catalog() {
-        // some code goes here
+    	dbFileMap = new HashMap<String, DbFile>();
+    	tableNameMap = new HashMap<Integer, String>();
+    	pkeyFieldMap = new HashMap<String, String>();
     }
 
     /**
@@ -32,11 +37,15 @@ public class Catalog {
      * @param file the contents of the table to add;  file.getId() is the identfier of
      *    this file/tupledesc param for the calls getTupleDesc and getFile
      * @param name the name of the table -- may be an empty string.  May not be null.  If a name
-     * @param pkeyField the name of the primary key field
      * conflict exists, use the last table to be added as the table for a given name.
+     * @param pkeyField the name of the primary key field
+     * 
      */
     public void addTable(DbFile file, String name, String pkeyField) {
-        // some code goes here
+        int tableId = file.getId();
+        dbFileMap.put(name, file);
+        tableNameMap.put(tableId, name);
+        pkeyFieldMap.put(name, pkeyField);
     }
 
     public void addTable(DbFile file, String name) {
@@ -59,8 +68,11 @@ public class Catalog {
      * @throws NoSuchElementException if the table doesn't exist
      */
     public int getTableId(String name) throws NoSuchElementException {
-        // some code goes here
-        return 0;
+        if (!tableExists(name)){
+        	throw new NoSuchElementException("Table with name " + name + "doesn't exist.");
+        }
+    	return dbFileMap.get(name).getId();
+        
     }
 
     /**
@@ -70,8 +82,11 @@ public class Catalog {
      * @throws NoSuchElementException if the table doesn't exist
      */
     public TupleDesc getTupleDesc(int tableid) throws NoSuchElementException {
-        // some code goes here
-        return null;
+        if (!tableExists(tableid)){
+        	throw new NoSuchElementException("Table with tableid " + tableid + "doesn't exist.");
+        }
+        String tableName = tableNameMap.get(tableid);
+    	return dbFileMap.get(tableName).getTupleDesc();
     }
 
     /**
@@ -79,30 +94,54 @@ public class Catalog {
      * specified table.
      * @param tableid The id of the table, as specified by the DbFile.getId()
      *     function passed to addTable
+     * @throws NoSuchElementException if the table doesn't exist
      */
     public DbFile getDatabaseFile(int tableid) throws NoSuchElementException {
-        // some code goes here
-        return null;
+        if (!tableExists(tableid)){
+        	throw new NoSuchElementException("Table with tableid " + tableid + "doesn't exist.");
+        }
+        String tableName = tableNameMap.get(tableid);
+        return dbFileMap.get(tableName);     
     }
 
+    
     public String getPrimaryKey(int tableid) {
-        // some code goes here
-        return null;
+        if (!tableExists(tableid)){
+        	throw new NoSuchElementException("Table with tableid " + tableid + "doesn't exist.");
+        }
+    	return pkeyFieldMap.get(tableid);
     }
 
     public Iterator<Integer> tableIdIterator() {
-        // some code goes here
-        return null;
+        return tableNameMap.keySet().iterator();
     }
 
     public String getTableName(int id) {
-        // some code goes here
-        return null;
+        if (!tableExists(id)){
+        	throw new NoSuchElementException("Table with tableid " + id + "doesn't exist.");
+        }
+        return tableNameMap.get(id);
+    }
+    
+    /**
+     * Helper functions to determine existence of table based on
+     * tableId or tableName.
+     * @param tableId
+     * @return
+     */
+    public boolean tableExists(int tableId){
+    	return tableNameMap.containsKey(tableId);
+    }
+    
+    public boolean tableExists(String tableName){
+    	return dbFileMap.containsKey(tableName);
     }
     
     /** Delete all tables from the catalog */
     public void clear() {
-        // some code goes here
+        dbFileMap.clear();
+        tableNameMap.clear();
+        pkeyFieldMap.clear();
     }
     
     /**
