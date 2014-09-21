@@ -66,6 +66,7 @@ public class RecordId implements Serializable {
      */
     @Override
     public int hashCode() {
+    	// beware integer overflow
         return Integer.parseInt("" + pid.hashCode() + tupleno);
 
     }
