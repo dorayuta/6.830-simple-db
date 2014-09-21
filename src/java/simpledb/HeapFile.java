@@ -61,7 +61,7 @@ public class HeapFile implements DbFile {
     }
 
     // see DbFile.java for javadocs
-    public Page readPage(PageId pid) {   	
+    public Page readPage(PageId pid) {   
     	int offset = pid.pageNumber() * BufferPool.PAGE_SIZE;
     	//validate the page read attempt.
     	if (file.length() <= offset){
