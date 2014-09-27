@@ -23,7 +23,7 @@ public class OrderBy extends Operator {
      *            the field to which the sort is applied.
      * @param asc
      *            true if the sort order is ascending.
-     * @param child
+      * @param child
      *            the tuples to sort.
      */
     public OrderBy(int orderbyField, boolean asc, DbIterator child) {
