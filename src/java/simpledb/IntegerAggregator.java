@@ -1,11 +1,23 @@
 package simpledb;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 /**
  * Knows how to compute some aggregate over a set of IntFields.
  */
 public class IntegerAggregator implements Aggregator {
 
     private static final long serialVersionUID = 1L;
+    private final int gbFieldIndex;
+    private final Type gbFieldType;
+    private final int aFieldIndex;
+    private final Op aggOperator;
+    private final Map<Field, Integer> groupMap = new HashMap<Field, Integer>();
+    private int count;
+    private int noGroupValue;
 
     /**
      * Aggregate constructor
@@ -23,7 +35,11 @@ public class IntegerAggregator implements Aggregator {
      */
 
     public IntegerAggregator(int gbfield, Type gbfieldtype, int afield, Op what) {
-        // some code goes here
+        gbFieldIndex = gbfield;
+        gbFieldType = gbfieldtype;
+        aFieldIndex = afield;
+        aggOperator = what;
+        count = 0;   
     }
 
     /**
@@ -34,7 +50,27 @@ public class IntegerAggregator implements Aggregator {
      *            the Tuple containing an aggregate field and a group-by field
      */
     public void mergeTupleIntoGroup(Tuple tup) {
-        // some code goes here
+    	Field gbField = null;
+    	IntField aField = (IntField) tup.getField(aFieldIndex);
+    	int newValue = aField.getValue();
+    	
+    	// keep count of tuples.
+    	count++;
+    	
+    	// if there is grouping
+    	if (gbFieldIndex == NO_GROUPING){
+    		noGroupValue = getAggValue(newValue, noGroupValue);
+    	}
+    	else {
+    		gbField = tup.getField(gbFieldIndex);
+    		if (groupMap.containsKey(gbField)){
+    			int oldValue = groupMap.get(gbField);
+    			groupMap.put(gbField, getAggValue(newValue, oldValue));
+    		}
+    		else {
+    			groupMap.put(gbField, newValue);
+    		}
+    	}
     }
 
     /**
@@ -46,9 +82,50 @@ public class IntegerAggregator implements Aggregator {
      *         the constructor.
      */
     public DbIterator iterator() {
-        // some code goes here
-        throw new
-        UnsupportedOperationException("please implement me for lab2");
+    	List<Tuple> tupleList = new ArrayList<Tuple>();
+    	
+    	if (gbFieldIndex == NO_GROUPING){
+    		Type[] typeArr = new Type[]{Type.INT_TYPE};
+    		TupleDesc td = new TupleDesc(typeArr);
+    		Tuple tuple = new Tuple(td);
+    		tuple.setField(0, new IntField(noGroupValue));
+    		tupleList.add(tuple);
+    		return new TupleIterator(td, tupleList);
+    	}
+    	
+    	else {
+    		Type[] typeArr = new Type[]{gbFieldType, Type.INT_TYPE};
+    		TupleDesc td = new TupleDesc(typeArr);
+    		for (Field gbField: groupMap.keySet()){
+    			IntField value = new IntField(groupMap.get(gbField));
+        		Tuple tuple = new Tuple(td);
+    			tuple.setField(0, gbField);
+    			tuple.setField(1, value);
+    			tupleList.add(tuple);
+    		}
+    		return new TupleIterator(td, tupleList);
+    	}
+    }
+    
+   
+    private int getAggValue(int newValue, int oldValue){
+    	switch (this.aggOperator) {
+    	case MIN:
+    		return Math.min(newValue, oldValue);
+    	case MAX:
+    		return Math.max(newValue, oldValue);
+    	case SUM:
+    		return newValue + oldValue;
+    	case AVG:
+    		return (newValue + (count-1) * oldValue) / count;
+    	case COUNT:
+    		return count;
+    	case SUM_COUNT:
+    		break;
+    	case SC_AVG:
+    		break;
+    	}
+    	return -1;
     }
 
 }

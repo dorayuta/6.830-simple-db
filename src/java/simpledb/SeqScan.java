@@ -95,12 +95,12 @@ public class SeqScan implements DbIterator {
      */
     public TupleDesc getTupleDesc() {
     	TupleDesc fileTD = dbFile.getTupleDesc();
-    	int size = fileTD.getSize();
+    	int size = fileTD.numFields();
     	Type[] typeAr = new Type[size];
     	String[] fieldAr = new String[size];
     	for (int i=0; i<size; i++){
     		typeAr[i] = fileTD.getFieldType(i);
-    		fieldAr[i] = tableAlias + fileTD.getFieldName(i);
+    		fieldAr[i] = tableAlias + "." + fileTD.getFieldName(i);
     	}
     	TupleDesc prefixedTD = new TupleDesc(typeAr, fieldAr);
         return prefixedTD;

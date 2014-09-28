@@ -123,6 +123,9 @@ public class TupleDesc implements Serializable {
      *             if i is not a valid field reference.
      */
     public Type getFieldType(int i) throws NoSuchElementException {
+    	if (i >= tdItemList.size()){
+    		throw new NoSuchElementException("Bad index to getFieldType.");
+    	}
         return this.tdItemList.get(i).getFieldType();
     }
 
