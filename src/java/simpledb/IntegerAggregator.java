@@ -16,6 +16,8 @@ public class IntegerAggregator implements Aggregator {
     private final int aFieldIndex;
     private final Op aggOperator;
     private final Map<Field, Integer> groupMap = new HashMap<Field, Integer>();
+    // Map of group by number of tuples satisfying group
+    private final Map<Field, Integer> countsByGroup = new HashMap<Field, Integer>();
     private int count;
     private int noGroupValue;
 
@@ -59,16 +61,25 @@ public class IntegerAggregator implements Aggregator {
     	
     	// if there is grouping
     	if (gbFieldIndex == NO_GROUPING){
-    		noGroupValue = getAggValue(newValue, noGroupValue);
+    		if (count == 1){
+    			noGroupValue = newValue;
+    		}
+    		else {
+        		noGroupValue = getAggValue(newValue, noGroupValue);	
+    		}
     	}
     	else {
     		gbField = tup.getField(gbFieldIndex);
     		if (groupMap.containsKey(gbField)){
     			int oldValue = groupMap.get(gbField);
-    			groupMap.put(gbField, getAggValue(newValue, oldValue));
+    			int oldCount = countsByGroup.get(gbField);
+    			oldCount++;
+    			countsByGroup.put(gbField, oldCount);
+    			groupMap.put(gbField, getAggValue(newValue, oldValue, oldCount));
     		}
     		else {
     			groupMap.put(gbField, newValue);
+    			countsByGroup.put(gbField, 1);
     		}
     	}
     }
@@ -88,7 +99,11 @@ public class IntegerAggregator implements Aggregator {
     		Type[] typeArr = new Type[]{Type.INT_TYPE};
     		TupleDesc td = new TupleDesc(typeArr);
     		Tuple tuple = new Tuple(td);
-    		tuple.setField(0, new IntField(noGroupValue));
+    		int value = noGroupValue;
+    		if (aggOperator == Aggregator.Op.AVG){
+				value = value / count;
+			}
+    		tuple.setField(0, new IntField(value));
     		tupleList.add(tuple);
     		return new TupleIterator(td, tupleList);
     	}
@@ -97,10 +112,15 @@ public class IntegerAggregator implements Aggregator {
     		Type[] typeArr = new Type[]{gbFieldType, Type.INT_TYPE};
     		TupleDesc td = new TupleDesc(typeArr);
     		for (Field gbField: groupMap.keySet()){
-    			IntField value = new IntField(groupMap.get(gbField));
+    			int value = groupMap.get(gbField);
+    			if (aggOperator == Aggregator.Op.AVG){
+    				int count = countsByGroup.get(gbField);
+    				value = value / count;
+    			}
+    			IntField valueField = new IntField(value);
         		Tuple tuple = new Tuple(td);
     			tuple.setField(0, gbField);
-    			tuple.setField(1, value);
+    			tuple.setField(1, valueField);
     			tupleList.add(tuple);
     		}
     		return new TupleIterator(td, tupleList);
@@ -108,7 +128,7 @@ public class IntegerAggregator implements Aggregator {
     }
     
    
-    private int getAggValue(int newValue, int oldValue){
+    private int getAggValue(int newValue, int oldValue, int oldCount){
     	switch (this.aggOperator) {
     	case MIN:
     		return Math.min(newValue, oldValue);
@@ -117,15 +137,25 @@ public class IntegerAggregator implements Aggregator {
     	case SUM:
     		return newValue + oldValue;
     	case AVG:
-    		return (newValue + (count-1) * oldValue) / count;
+    		return newValue + oldValue;
     	case COUNT:
-    		return count;
+    		return oldCount;
     	case SUM_COUNT:
     		break;
     	case SC_AVG:
     		break;
     	}
     	return -1;
+    }
+    
+    /**
+     * Overload. Use total "count" as oldCount.
+     * @param newValue
+     * @param oldValue
+     * @return
+     */
+    private int getAggValue(int newValue, int oldValue){
+    	return getAggValue(newValue, oldValue, count);
     }
 
 }
