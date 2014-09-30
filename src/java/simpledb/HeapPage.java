@@ -238,8 +238,12 @@ public class HeapPage implements Page {
      * @param t The tuple to delete
      */
     public void deleteTuple(Tuple t) throws DbException {
-        // some code goes here
-        // not necessary for lab1
+    	int tupleNo = t.getRecordId().tupleno();
+    	PageId pid = t.getRecordId().getPageId();
+    	if (!isSlotUsed(tupleNo) || pid != this.pid){
+    		throw new DbException("Error finding tuple.");
+    	}
+        markSlotUsed(tupleNo, false);
     }
 
     /**
@@ -250,8 +254,27 @@ public class HeapPage implements Page {
      * @param t The tuple to add.
      */
     public void insertTuple(Tuple t) throws DbException {
-        // some code goes here
-        // not necessary for lab1
+    	if (getNumEmptySlots() == 0 || !t.getTupleDesc().equals(this.td)){
+        	throw new DbException("Bad tuple input.");
+        }
+        int tupleNo = getFirstEmptySlot();
+    	markSlotUsed(tupleNo, true);
+    	// also insert the tuple actually.
+    	RecordId rid = new RecordId(pid, tupleNo);
+    	t.setRecordId(rid);
+    	tuples[tupleNo] = t;
+    }
+    
+	// helper to find TupleNo of next available.
+    public int getFirstEmptySlot(){
+        int slotCount = 0;
+        while (slotCount < numSlots){
+        	if (!isSlotUsed(slotCount)){
+        		return slotCount;
+        	}
+        	slotCount++;
+        }
+        return -1;
     }
 
     /**
@@ -260,7 +283,7 @@ public class HeapPage implements Page {
      */
     public void markDirty(boolean dirty, TransactionId tid) {
         // some code goes here
-	// not necessary for lab1
+    	// not necessary for lab1
     }
 
     /**
@@ -302,8 +325,18 @@ public class HeapPage implements Page {
      * Abstraction to fill or clear a slot on this page.
      */
     private void markSlotUsed(int i, boolean value) {
-        // some code goes here
-        // not necessary for lab1
+        int byteNo = i / 8;
+        int bitNo = i % 8;
+        // 8 bits, all 1's except in position bitNo.
+        byte oldValue = header[byteNo];
+        byte newValue;
+        if (value){
+            newValue = (byte) (oldValue | (1 << bitNo));
+        }
+        else {
+        	newValue = (byte) (oldValue & ~(1 << bitNo));
+        }
+        header[byteNo] = newValue;
     }
 
     /**

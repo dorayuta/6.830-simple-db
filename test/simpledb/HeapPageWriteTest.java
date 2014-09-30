@@ -53,7 +53,7 @@ public class HeapPageWriteTest extends SimpleDbTestBase {
 
         // NOTE(ghuo): this nested loop existence check is slow, but it
         // shouldn't make a difference for n = 504 slots.
-
+        
         for (int i = 0; i < free; ++i) {
             Tuple addition = Utility.getHeapTuple(i, 2);
             page.insertTuple(addition);
