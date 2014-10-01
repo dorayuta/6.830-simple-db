@@ -1,6 +1,7 @@
 package simpledb;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -68,8 +69,7 @@ public class BufferPool {
         }
         else{
         	if (cache.size() == this.numPages){
-        		throw new DbException("evictPage not yet implemented.");
-        		//evictPage();
+        		evictPage();
         	}
         	Page newPage = Database.getCatalog().getDatabaseFile(pid.getTableId()).readPage(pid);
         	cache.put(pid, newPage);
@@ -138,7 +138,10 @@ public class BufferPool {
     public void insertTuple(TransactionId tid, int tableId, Tuple t)
         throws DbException, IOException, TransactionAbortedException {
     	HeapFile heapFile = (HeapFile) Database.getCatalog().getDatabaseFile(tableId);
-    	heapFile.insertTuple(tid, t);
+    	List<Page> dirtiedPages = heapFile.insertTuple(tid, t);
+    	for (Page page: dirtiedPages){
+    		page.markDirty(true, tid);
+    	}
     }
 
     /**
@@ -157,7 +160,10 @@ public class BufferPool {
         throws DbException, IOException, TransactionAbortedException {
         int tableId = t.getRecordId().getPageId().getTableId();
     	HeapFile heapFile = (HeapFile) Database.getCatalog().getDatabaseFile(tableId);
-    	heapFile.deleteTuple(tid, t);
+    	List<Page> dirtiedPages = heapFile.deleteTuple(tid, t);
+    	for (Page page: dirtiedPages){
+    		page.markDirty(true, tid);
+    	}
     }
 
     /**
@@ -166,9 +172,11 @@ public class BufferPool {
      *     break simpledb if running in NO STEAL mode.
      */
     public synchronized void flushAllPages() throws IOException {
-        // some code goes here
-        // not necessary for lab1
-
+        for (Page page: cache.values()){
+        	if (page.isDirty() != null){
+        		flushPage(page.getId());
+        	}
+        }
     }
 
     /** Remove the specific page id from the buffer pool.
@@ -186,8 +194,9 @@ public class BufferPool {
      * @param pid an ID indicating the page to flush
      */
     private synchronized  void flushPage(PageId pid) throws IOException {
-        // some code goes here
-        // not necessary for lab1
+        DbFile file = Database.getCatalog().getDatabaseFile(pid.getTableId());
+    	Page page = cache.get(pid);
+    	file.writePage(page);
     }
 
     /** Write all pages of the specified transaction to disk.
@@ -204,6 +213,18 @@ public class BufferPool {
     private synchronized  void evictPage() throws DbException {
         // some code goes here
         // not necessary for lab1
+    	PageId pageIdToEvict = cache.keySet().iterator().next();
+    	Page pageToEvict = cache.get(pageIdToEvict);
+    	try {
+    		// if the page is dirty, flush it.
+    		if (pageToEvict.isDirty() != null){
+    			flushPage(pageIdToEvict);
+    		}
+			cache.remove(pageIdToEvict);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
     }
 
 }
