@@ -125,16 +125,13 @@ public class Aggregate extends Operator {
     
     /**
      * helper method to merge tuples in aggregator.
+     * @throws TransactionAbortedException 
+     * @throws DbException 
+     * @throws NoSuchElementException 
      */
-    public void aggregatorMergeTuples(){
-    	try {
-			while (child.hasNext()){
-				aggregator.mergeTupleIntoGroup(child.next());
-			}
-		} catch (NoSuchElementException | DbException
-				| TransactionAbortedException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+    public void aggregatorMergeTuples() throws NoSuchElementException, DbException, TransactionAbortedException{
+		while (child.hasNext()){
+			aggregator.mergeTupleIntoGroup(child.next());
 		}
     }
 
