@@ -194,8 +194,29 @@ public class BPlusTreeFile implements DbFile {
 	BPlusTreeLeafPage findLeafPage(TransactionId tid, Field f, BPlusTreePageId pid,
 			Permissions perm) 
 					throws DbException, TransactionAbortedException {
-		// some code goes here
-        return null;
+		// base case.
+		if (pid.pgcateg() == BPlusTreePageId.LEAF){
+			BPlusTreeLeafPage leafPage = (BPlusTreeLeafPage) Database.getBufferPool().getPage(tid, pid, perm);
+			return leafPage;
+		}
+		// must be internal page.
+		BPlusTreeInternalPage internalPage = (BPlusTreeInternalPage) Database.getBufferPool().getPage(tid, pid, Permissions.READ_ONLY);
+		Iterator<BPlusTreeEntry> iter = internalPage.iterator();
+
+		BPlusTreeEntry entry = null;
+		// compare field to internal page keys
+		while (iter.hasNext()){
+			entry = iter.next();
+			Field entryKey = entry.getKey();
+			// also check if field is null.
+			if (f == null ||  f.compare(Op.LESS_THAN_OR_EQ, entryKey)) {
+				BPlusTreePageId leftChildPid = entry.getLeftChild();
+				return findLeafPage(tid, f, leftChildPid, perm);
+			}
+		}
+		// if range not found, return rightmost child.
+		BPlusTreePageId rightChildPid = entry.getRightChild();
+		return findLeafPage(tid, f, rightChildPid, perm);
 	}
 
 	/**
@@ -215,7 +236,7 @@ public class BPlusTreeFile implements DbFile {
 	private BPlusTreeLeafPage splitLeafPage(BPlusTreeLeafPage page, TransactionId tid, HashSet<Page> dirtypages, Field field) 
 			throws DbException, IOException, TransactionAbortedException {
 		BPlusTreePageId parentId = page.getParentId();
-		// some code goes here
+		//
         return null;
 		
 	}
@@ -237,8 +258,102 @@ public class BPlusTreeFile implements DbFile {
 	private BPlusTreeInternalPage splitInternalPage(BPlusTreeInternalPage page, TransactionId tid, 
 			HashSet<Page> dirtypages, Field field) 
 					throws DbException, IOException, TransactionAbortedException {
-		// some code goes here
-        return null;
+        // if internal page is root, make new root 
+		if (page.getId().pgcateg() == BPlusTreePageId.ROOT_PTR) {
+			int newRootId = getEmptyPage(tid, dirtypages);
+			BPlusTreeInternalPage newRoot = new BPlusTreeInternalPage(null, null, keyField);
+		}
+		
+		// get parentId
+		BPlusTreePageId parentId = page.getParentId();
+		// split page to new page
+		// get childCategory
+		int childCategory = page.getChildCategory();
+		
+		// split header
+		byte[] oldHeader = page.header;
+		int firstHeaderSize = oldHeader.length / 2;
+		int secondHeaderSize = oldHeader.length - firstHeaderSize;
+		byte[] firstHeader = new byte[firstHeaderSize];
+		byte[] secondHeader = new byte[secondHeaderSize];
+		byteArraySplit(oldHeader, firstHeader, secondHeader);
+		
+		// split keys
+		// tricky thing with first key slot not being used.
+		Field[] oldKeys = page.keys;
+		int firstKeysNum = page.getNumEntries() / 2;
+		int firstKeysSize = firstKeysNum + 1;
+		
+		int secondKeysNum = page.getNumEntries() - firstKeysNum;
+		int secondKeysSize = secondKeysNum + 1;
+		
+		Field[] firstKeys = new Field[firstKeysSize];
+		Field[] secondKeys = new Field[secondKeysSize];
+		
+		for (int i=1; i<firstKeysSize; i++){
+			firstKeys[i] = oldKeys[i];
+		}
+		for (int j=1; j<secondKeysSize; j++){
+			secondKeys[j] = oldKeys[j + firstKeysNum];
+		}
+		
+		// split children
+		int[] oldChildren = page.children;
+		int firstChildrenSize = page.getNumEntries() / 2;
+		int secondChildrenSize = page.getNumEntries() - firstChildrenSize;
+		int[] firstChildren = new int[firstChildrenSize];
+		int[] secondChildren = new int[secondChildrenSize];
+		intArraySplit(oldChildren, firstChildren, secondChildren);
+		
+		// BPlusTreeInternalPage(BPlusTreePageId id, byte[] data, int key)
+		// create split internal Nodes
+		return null;
+	}
+	
+	
+	/**
+	 * Split byte[] into two.
+	 * @param toSplit
+	 * @param first
+	 * @param second
+	 */
+	private void byteArraySplit(byte[] toSplit, byte[] first, byte[] second){
+		for (int i=0; i<first.length; i++){
+			first[i] = toSplit[i];
+		}
+		for (int j=0; j<second.length; j++){
+			second[j] = toSplit[j + first.length];
+		}
+	}
+	
+	/**
+	 * Split int[] into two.
+	 * @param toSplit
+	 * @param first
+	 * @param second
+	 */
+	private void intArraySplit(int[] toSplit, int[] first, int[] second){
+		for (int i=0; i<first.length; i++){
+			first[i] = toSplit[i];
+		}
+		for (int j=0; j<second.length; j++){
+			second[j] = toSplit[j + first.length];
+		}
+	}
+	
+	/**
+	 * split generic array into two.
+	 * @param toSplit
+	 * @param first
+	 * @param second
+	 */
+	private <T> void splitArray(T[] toSplit, T[] first, T[] second){
+		for (int i=0; i<first.length; i++){
+			first[i] = toSplit[i];
+		}
+		for (int j=0; j<second.length; j++){
+			second[j] = toSplit[j + first.length];
+		}
 	}
 
 	/**

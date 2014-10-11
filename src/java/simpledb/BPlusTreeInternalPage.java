@@ -104,6 +104,11 @@ public class BPlusTreeInternalPage implements Page {
 
 		setBeforeImage();
 	}
+	
+	// getter (added to api)
+	public int getChildCategory(){
+		return childCategory;
+	}
 
 	/** Retrieve the number of entries on this page. (The number of keys)
         @return the number of entries on this page
@@ -653,6 +658,7 @@ public class BPlusTreeInternalPage implements Page {
 			throw new NoSuchElementException();
 		}
 	}
+	
 }
 
 /**
@@ -714,4 +720,5 @@ class BPlusTreeInternalPageIterator implements Iterator<BPlusTreeEntry> {
 	public void remove() {
 		throw new UnsupportedOperationException();
 	}
+	
 }
