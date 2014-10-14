@@ -71,7 +71,7 @@ public class HeapPage implements Page {
         @return the number of tuples on this page
     */
     private int getNumTuples() {        
-        return (int) Math.floor((BufferPool.PAGE_SIZE* 8.0) / (td.getSize() * 8 + 1));
+        return (int) Math.floor((BufferPool.getPageSize()* 8.0) / (td.getSize() * 8 + 1));
     }
 
     /**
@@ -205,6 +205,7 @@ public class HeapPage implements Page {
 
         // padding
         int zerolen = BufferPool.getPageSize() - (header.length + td.getSize() * tuples.length); //- numSlots * td.getSize();
+        
         byte[] zeroes = new byte[zerolen];
         try {
             dos.write(zeroes, 0, zerolen);

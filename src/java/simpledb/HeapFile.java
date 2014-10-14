@@ -62,13 +62,21 @@ public class HeapFile implements DbFile {
 
     // see DbFile.java for javadocs
     public Page readPage(PageId pid) {   
-    	int offset = pid.pageNumber() * BufferPool.PAGE_SIZE;
+    	int offset = pid.pageNumber() * BufferPool.getPageSize();
+    	
     	//validate the page read attempt.
-    	if (file.length() <= offset && file.length() != 0){
-    		throw new IllegalArgumentException("Page does not exist.");
+    	
+    	if (file.length() == 0){
+    		if(offset != 0){
+    			throw new IllegalArgumentException("Trying to read more content than page has.");
+    		}
     	}
+    	else if (offset >= file.length() ) {
+			throw new IllegalArgumentException("Trying to read more content than page has.");
+    	}
+    	
     	// Read file page.
-        byte[] data = new byte[BufferPool.PAGE_SIZE];    	
+        byte[] data = new byte[BufferPool.getPageSize()];    	
     	try {
 			RandomAccessFile raf = new RandomAccessFile(file, "r");
 			raf.seek(offset);
@@ -107,7 +115,7 @@ public class HeapFile implements DbFile {
     	if (file.length() == 0){
     		return 1;
     	}
-        return (int) Math.ceil(file.length() / BufferPool.PAGE_SIZE); 
+        return (int) Math.ceil(file.length() / BufferPool.getPageSize()); 
     }
 
     // see DbFile.java for javadocs
@@ -127,7 +135,7 @@ public class HeapFile implements DbFile {
         }
         // run out of pages in HeapFile.
         // so add a new Page.
-        byte[] emptyData = new byte[BufferPool.PAGE_SIZE];
+        byte[] emptyData = new byte[BufferPool.getPageSize()];
         HeapPageId heapPageId = new HeapPageId(getId(), numPages());
         HeapPage newPage = new HeapPage(heapPageId, emptyData);
         writePage(newPage);
