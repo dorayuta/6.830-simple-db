@@ -137,13 +137,13 @@ public class BufferPool {
      */
     public void insertTuple(TransactionId tid, int tableId, Tuple t)
         throws DbException, IOException, TransactionAbortedException {
+    	
     	DbFile dbFile = Database.getCatalog().getDatabaseFile(tableId);
     	List<Page> dirtiedPages = dbFile.insertTuple(tid, t);
     	
-//    	HeapFile heapFile = (HeapFile) Database.getCatalog().getDatabaseFile(tableId);
-//    	List<Page> dirtiedPages = heapFile.insertTuple(tid, t);
     	for (Page page: dirtiedPages){
-    		page.markDirty(true, tid);
+    		page.markDirty(true, tid);	
+    		cache.put(page.getId(), page);
     	}
     }
 
@@ -166,6 +166,7 @@ public class BufferPool {
     	List<Page> dirtiedPages = heapFile.deleteTuple(tid, t);
     	for (Page page: dirtiedPages){
     		page.markDirty(true, tid);
+    		cache.put(page.getId(), page);
     	}
     }
 
@@ -188,8 +189,9 @@ public class BufferPool {
         cache.
     */
     public synchronized void discardPage(PageId pid) {
-        // some code goes here
+    	// some code goes here
         // only necessary for lab5
+    	cache.remove(pid);
     }
 
     /**
@@ -209,7 +211,7 @@ public class BufferPool {
         // not necessary for lab1|lab2
     }
 
-    /**
+    /**	
      * Discards a page from the buffer pool.
      * Flushes the page to disk to ensure dirty pages are updated on disk.
      */

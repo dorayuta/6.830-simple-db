@@ -237,40 +237,59 @@ public class BPlusTreeFile implements DbFile {
 	 */
 	private BPlusTreeLeafPage splitLeafPage(BPlusTreeLeafPage page, TransactionId tid, HashSet<Page> dirtypages, Field field) 
 			throws DbException, IOException, TransactionAbortedException {
-		
 		// get Parent Page ID
 		BPlusTreePageId parentPageId = page.getParentId();
 		
-		// check if parent page is for root ptr page.
+		// if parent page is a root ptr page, create new parent page as root of tree.
 		if (parentPageId.pgcateg() == BPlusTreePageId.ROOT_PTR){
+			// add root_ptr to dirty pages
+			BPlusTreeRootPtrPage rootPtr = getRootPtrPage(tid);
+			dirtypages.add(rootPtr);
+			
+			// construct new parent internal page with pageNo, pageId, and data.
 			int newRootNum = getEmptyPage(tid, dirtypages);
 			BPlusTreePageId newRootPageId = new BPlusTreePageId(tableid, newRootNum, BPlusTreePageId.INTERNAL);
-			byte[] newRootData = BPlusTreeInternalPage.createEmptyPageData();
-			BPlusTreeInternalPage newRootPage = new BPlusTreeInternalPage(newRootPageId, newRootData, keyField);
-			// update new root node's parent pointer
-			newRootPage.setParentId(parentPageId);
-			// update root ptr page with new root.
-			getRootPtrPage(tid).setRootId(newRootPageId);
-			dirtypages.add(newRootPage);
+			
+			// discard old page in bufferpool, retrieve new page from bufferpool.
+			Database.getBufferPool().discardPage(newRootPageId);
+			rootPtr.setRootId(newRootPageId);			
 			parentPageId = newRootPageId;
 		}
+		// get parent page from bufferpool.
+		BPlusTreeInternalPage parentPage = (BPlusTreeInternalPage) Database.getBufferPool().getPage(tid, parentPageId, Permissions.READ_ONLY);
+		dirtypages.add(parentPage);
 		
 		// split page to new page
 		// construct new pageId and data.
 		int newPageNo = getEmptyPage(tid, dirtypages);
 	    BPlusTreePageId newPid = new BPlusTreePageId(tableid, newPageNo, BPlusTreePageId.LEAF);
+	    
+	    // discard any old page.
+	    Database.getBufferPool().discardPage(newPid); 
 		byte[] newPageData = BPlusTreeLeafPage.createEmptyPageData();
 		
 		// Construct new page as leftPage and set parent.
 		BPlusTreeLeafPage leftPage = new BPlusTreeLeafPage(newPid, newPageData, keyField);
 		leftPage.setParentId(parentPageId);
 		
-		// rest leftPage with value from bufferpool
+		// reset leftPage with value from bufferpool
 		leftPage = (BPlusTreeLeafPage) Database.getBufferPool().getPage(tid, newPid, Permissions.READ_WRITE);
+		dirtypages.add(leftPage);
 
 		//rename original page as rightPage.
 		BPlusTreeLeafPage rightPage = page;
-
+		
+		// change the siblings to page and newPage
+		if (page.getLeftSiblingId() != null){
+			BPlusTreePageId leftSibPid = page.getLeftSiblingId();
+			BPlusTreeLeafPage leftSibPage = (BPlusTreeLeafPage)Database.getBufferPool().getPage(tid, leftSibPid, Permissions.READ_WRITE);
+			dirtypages.add(leftSibPage);
+			leftSibPage.setRightSiblingId(leftPage.getId());
+		}
+		leftPage.setLeftSiblingId(page.getLeftSiblingId());
+		leftPage.setRightSiblingId(page.getId());
+		rightPage.setLeftSiblingId(leftPage.getId());
+		
 		// Iterate through all entries in original page and decide whether to move them.
 		Iterator<Tuple> iter = page.iterator();
 		int numTuplesToMove = page.getNumTuples() / 2;
@@ -291,21 +310,13 @@ public class BPlusTreeFile implements DbFile {
 			// check if field belongs before currentTuple, only if field location hasn't been decided.
 			if (pageWithInsert == null && currentTuple.getField(keyField).compare(Op.GREATER_THAN_OR_EQ, field)) {
 								
-				// check if new entry should be inserted.
-				if (leftPageTupleCount < numTuplesToMove){
+				// check if left page should have new entry.
+				if (leftPageTupleCount <= numTuplesToMove){
 					pageWithInsert = leftPage;
-					leftPageTupleCount++;
 				}
-				// condition for determining entry to push up.
-				if (leftPageTupleCount == numTuplesToMove){
-					toPush = toInsert;
-					pageWithInsert = leftPage;
-					leftPageTupleCount++;
-				}
-				
 				// check if right page should have the new entry.
-				if (leftPageTupleCount > numTuplesToMove){
-					pageWithInsert = page;
+				else {
+					pageWithInsert = rightPage;
 				}
 			}
 			
@@ -317,33 +328,23 @@ public class BPlusTreeFile implements DbFile {
 			}
 			
 			// condition for determining entry/tuple to push up.
-			if (leftPageTupleCount == numTuplesToMove){
+			else if (leftPageTupleCount == numTuplesToMove){
 				toPush = currentTuple;
+				leftPageTupleCount++;
 			}
 		}
 		// insert new entry into old page if it never got set.
 		if (pageWithInsert == null){
-			pageWithInsert = page;
-		}
-		pageWithInsert.insertTuple(toInsert);
+			pageWithInsert = rightPage;
+		}		
 		
-		// update dirty pages
-		dirtypages.add(leftPage);
-		
-		// get parent page from bufferpool
-		BPlusTreeInternalPage parentPage = (BPlusTreeInternalPage) Database.getBufferPool().getPage(tid, parentPageId, Permissions.READ_ONLY);
-		
+		BPlusTreeEntry entryToInsert = new BPlusTreeEntry(toPush.getField(keyField), leftPage.getId(), rightPage.getId());
 		// check if parent needs to be split
 		if (parentPage.getNumEmptySlots() == 0){
-			// if the entry to insert is pushed up.
-			splitInternalPage(parentPage, tid, dirtypages, toPush.getField(keyField));
+			parentPage = splitInternalPage(parentPage, tid, dirtypages, toPush.getField(keyField));
 		}
-		else {
-			// push value to parent page.
-			// newPage is left page. page is right page.
-			BPlusTreeEntry entryToPush = new BPlusTreeEntry(toPush.getField(keyField), leftPage.getId(), page.getId());
-			parentPage.insertEntry(entryToPush);	
-		}
+		parentPage.insertEntry(entryToInsert);
+		updateParentPointers(tid, parentPage, dirtypages); 		
 		return pageWithInsert;
 	}
 
@@ -364,79 +365,66 @@ public class BPlusTreeFile implements DbFile {
 	private BPlusTreeInternalPage splitInternalPage(BPlusTreeInternalPage page, TransactionId tid, 
 			HashSet<Page> dirtypages, Field field) 
 					throws DbException, IOException, TransactionAbortedException {
-        
-		// get parent Page
+		System.out.println("splitInternalPageCall");
+		// get parent Page Id
 		BPlusTreePageId parentPageId = page.getParentId();
 		
-		// if parent page is root ptr, make new internal node as parent.
-		if (parentPageId.pgcateg() == BPlusTreePageId.ROOT_PTR) {
-			// create new root node as parent. 
-			int newRootPageNo = getEmptyPage(tid, dirtypages);
-			BPlusTreePageId newRootPageId = new BPlusTreePageId(tableid, newRootPageNo, BPlusTreePageId.INTERNAL);
-			byte[] newRootData = BPlusTreeInternalPage.createEmptyPageData();
-			BPlusTreeInternalPage newRootPage = new BPlusTreeInternalPage(newRootPageId, newRootData, keyField);
-
-			// update root ptr page with new root. and root parent as root ptr.
-			newRootPage.setParentId(parentPageId);
-			getRootPtrPage(tid).setRootId(newRootPageId);
-			dirtypages.add(newRootPage);
+		// if parent page is a root ptr page, create new parent page as root of tree.
+		if (parentPageId.pgcateg() == BPlusTreePageId.ROOT_PTR){
+			// add root_ptr to dirty pages
+			BPlusTreeRootPtrPage rootPtr = getRootPtrPage(tid);
+			dirtypages.add(rootPtr);
+			
+			// construct new parent internal page with pageNo, pageId, and data.
+			int newRootNum = getEmptyPage(tid, dirtypages);
+			BPlusTreePageId newRootPageId = new BPlusTreePageId(tableid, newRootNum, BPlusTreePageId.INTERNAL);
+			
+			// discard old page in bufferpool, retrieve new page from bufferpool.
+			Database.getBufferPool().discardPage(newRootPageId);
+			rootPtr.setRootId(newRootPageId);			
 			parentPageId = newRootPageId;
 		}
-				
+		
+		// get parent page from bufferpool.
+		BPlusTreeInternalPage parentPage = (BPlusTreeInternalPage) Database.getBufferPool().getPage(tid, parentPageId, Permissions.READ_ONLY);
+		dirtypages.add(parentPage);
+		
 		// construct new page as left page.
 		int newPageNo = getEmptyPage(tid, dirtypages);
 	    BPlusTreePageId leftPageId = new BPlusTreePageId(tableid, newPageNo, BPlusTreePageId.INTERNAL);
 		byte[] newPageData = BPlusTreeInternalPage.createEmptyPageData();
+		// discard any old page
+		Database.getBufferPool().discardPage(leftPageId);
 		BPlusTreeInternalPage leftPage = new BPlusTreeInternalPage(leftPageId, newPageData, keyField);
 		
-		// set parent of new page.
-		leftPage.setParentId(parentPageId);
-		
-		// re-get page from bufferpool.
+		// re-get left page from bufferpool.
 		leftPage = (BPlusTreeInternalPage) Database.getBufferPool().getPage(tid, leftPageId, Permissions.READ_WRITE);
+		dirtypages.add(leftPage);
 		
 		// rename page as rightPage
 		BPlusTreeInternalPage rightPage = page;
+		dirtypages.add(rightPage);
 		
 		// Iterate through all entries in original page and decide whether to move them.
 		Iterator<BPlusTreeEntry> iter = page.iterator();
 		int numEntriesToMove = page.getNumEntries() / 2;
 		int leftPageEntryCount = 0;
 		
-		BPlusTreeEntry previous = null;
-		BPlusTreeEntry toInsert = null;
 		BPlusTreeEntry toPush = null;
 		BPlusTreeInternalPage pageWithInsert = null;
 
 		// move entries and also create entry to insert.
 		while(iter.hasNext()){
 			BPlusTreeEntry currentEntry = iter.next();
-			if (leftPageEntryCount == 0){
-				System.out.println(currentEntry.getLeftChild());
-			}
 			
-			// Create new field entry.
-			if (toInsert == null && currentEntry.getKey().compare(Op.GREATER_THAN_OR_EQ, field)) {
-				// get left and right child entries.
-				BPlusTreePageId leftChild = null;
-				if (previous != null){
-					 leftChild = previous.getRightChild();
-				}
-				BPlusTreePageId rightChild = currentEntry.getLeftChild();
-				toInsert = new BPlusTreeEntry(field, leftChild, rightChild);
+			// Determine page to insert new entry.
+			if (pageWithInsert == null && currentEntry.getKey().compare(Op.GREATER_THAN_OR_EQ, field)) {
 				
-				// check if new entry should be inserted.
-				if (leftPageEntryCount < numEntriesToMove){
+				// check if left/new page should have entry
+				if (leftPageEntryCount <= numEntriesToMove){
 					pageWithInsert = leftPage;
-					leftPageEntryCount++;
 				}
-				
-				// condition where entry field is going to be pushed up.
-				else if (leftPageEntryCount == numEntriesToMove){
-					toPush = new BPlusTreeEntry(field, leftPageId, rightPage.getId()); 
-				}
-				
-				// old page (right page) should have the new entry.
+				// old page (right page) should maintain the new entry.
 				else {
 					pageWithInsert = rightPage;
 				}
@@ -451,51 +439,27 @@ public class BPlusTreeFile implements DbFile {
 			
 			// condition for determining entry to push up.
 			else if (leftPageEntryCount == numEntriesToMove){
+				System.out.println("boudnary key");
 				rightPage.deleteEntry(currentEntry);
-				toPush = new BPlusTreeEntry(currentEntry.getKey(), leftPageId, rightPage.getId());
-			}
-			
-			// track previous entry.
-			previous = currentEntry;
-						
+				toPush = new BPlusTreeEntry(currentEntry.getKey(), leftPage.getId(), rightPage.getId());
+				leftPageEntryCount++;
+			}				
 		}
 		// case that new entry is last entry
-		// construct Entry to insert
-		if (toInsert == null){
+		if (pageWithInsert == null){
 			pageWithInsert = rightPage;		
-			// get left and right child entries.
-			BPlusTreePageId leftChild = previous.getRightChild();;
-			BPlusTreePageId rightChild = null;
-			toInsert = new BPlusTreeEntry(field, leftChild, rightChild);
 		}
-		
-		if (pageWithInsert != null){
-			// should toInsert not have any null children.
-			pageWithInsert.insertEntry(toInsert);
-		}
-		
-		// update parent pointers
-		updateParentPointers(tid, rightPage, dirtypages);
-		updateParentPointers(tid, leftPage, dirtypages);
-
-		// update dirty pages
-		dirtypages.add(leftPage);
-		
-		// get parent page from bufferpool
-		BPlusTreeInternalPage parentPage = (BPlusTreeInternalPage) Database.getBufferPool().getPage(tid, parentPageId, Permissions.READ_ONLY);
-		
+				
 		// check if parent needs to be split
 		if (parentPage.getNumEmptySlots() == 0){
-			// if the entry to insert is pushed up.
-			if (pageWithInsert == null){
-				return splitInternalPage(parentPage, tid, dirtypages, toPush.getKey());
-			}
-			splitInternalPage(parentPage, tid, dirtypages, toPush.getKey());
+			parentPage = splitInternalPage(parentPage, tid, dirtypages, toPush.getKey());
 		}
-		else {
-			parentPage.insertEntry(toPush);			
-		}
-		return pageWithInsert;
+		parentPage.insertEntry(toPush);			
+	    updateParentPointers(tid, parentPage, dirtypages); 
+	    updateParentPointers(tid, rightPage, dirtypages);
+	    updateParentPointers(tid, leftPage, dirtypages);
+	
+	    return pageWithInsert;
 	}
 	
 	
