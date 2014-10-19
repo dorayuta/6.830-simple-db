@@ -266,20 +266,21 @@ public class BPlusTreeFile implements DbFile {
 	    
 	    // discard any old page.
 	    Database.getBufferPool().discardPage(newPid); 
-		byte[] newPageData = BPlusTreeLeafPage.createEmptyPageData();
-		
-		// Construct new page as leftPage and set parent.
-		BPlusTreeLeafPage leftPage = new BPlusTreeLeafPage(newPid, newPageData, keyField);
-		leftPage.setParentId(parentPageId);
+//		byte[] newPageData = BPlusTreeLeafPage.createEmptyPageData();
+//		
+//		// Construct new page as leftPage and set parent.
+//		BPlusTreeLeafPage leftPage = new BPlusTreeLeafPage(newPid, newPageData, keyField);
+//		leftPage.setParentId(parentPageId);
 		
 		// reset leftPage with value from bufferpool
-		leftPage = (BPlusTreeLeafPage) Database.getBufferPool().getPage(tid, newPid, Permissions.READ_WRITE);
+	    BPlusTreeLeafPage leftPage = (BPlusTreeLeafPage) Database.getBufferPool().getPage(tid, newPid, Permissions.READ_WRITE);
 		dirtypages.add(leftPage);
+		dirtypages.add(page);
 
 		//rename original page as rightPage.
 		BPlusTreeLeafPage rightPage = page;
 		
-		// change the siblings to page and newPage
+		// change the siblings
 		if (page.getLeftSiblingId() != null){
 			BPlusTreePageId leftSibPid = page.getLeftSiblingId();
 			BPlusTreeLeafPage leftSibPage = (BPlusTreeLeafPage)Database.getBufferPool().getPage(tid, leftSibPid, Permissions.READ_WRITE);
@@ -287,7 +288,7 @@ public class BPlusTreeFile implements DbFile {
 			leftSibPage.setRightSiblingId(leftPage.getId());
 		}
 		leftPage.setLeftSiblingId(page.getLeftSiblingId());
-		leftPage.setRightSiblingId(page.getId());
+		leftPage.setRightSiblingId(rightPage.getId());
 		rightPage.setLeftSiblingId(leftPage.getId());
 		
 		// Iterate through all entries in original page and decide whether to move them.
@@ -314,7 +315,7 @@ public class BPlusTreeFile implements DbFile {
 				if (leftPageTupleCount <= numTuplesToMove){
 					pageWithInsert = leftPage;
 				}
-				// check if right page should have the new entry.
+				// otherwise, right page should have the new entry.
 				else {
 					pageWithInsert = rightPage;
 				}
@@ -365,7 +366,6 @@ public class BPlusTreeFile implements DbFile {
 	private BPlusTreeInternalPage splitInternalPage(BPlusTreeInternalPage page, TransactionId tid, 
 			HashSet<Page> dirtypages, Field field) 
 					throws DbException, IOException, TransactionAbortedException {
-		System.out.println("splitInternalPageCall");
 		// get parent Page Id
 		BPlusTreePageId parentPageId = page.getParentId();
 		
@@ -439,7 +439,6 @@ public class BPlusTreeFile implements DbFile {
 			
 			// condition for determining entry to push up.
 			else if (leftPageEntryCount == numEntriesToMove){
-				System.out.println("boudnary key");
 				rightPage.deleteEntry(currentEntry);
 				toPush = new BPlusTreeEntry(currentEntry.getKey(), leftPage.getId(), rightPage.getId());
 				leftPageEntryCount++;
@@ -455,6 +454,7 @@ public class BPlusTreeFile implements DbFile {
 			parentPage = splitInternalPage(parentPage, tid, dirtypages, toPush.getKey());
 		}
 		parentPage.insertEntry(toPush);			
+		
 	    updateParentPointers(tid, parentPage, dirtypages); 
 	    updateParentPointers(tid, rightPage, dirtypages);
 	    updateParentPointers(tid, leftPage, dirtypages);
@@ -463,51 +463,6 @@ public class BPlusTreeFile implements DbFile {
 	}
 	
 	
-	/**
-	 * Split byte[] into two.
-	 * @param toSplit
-	 * @param first
-	 * @param second
-	 */
-	private void byteArraySplit(byte[] toSplit, byte[] first, byte[] second){
-		for (int i=0; i<first.length; i++){
-			first[i] = toSplit[i];
-		}
-		for (int j=0; j<second.length; j++){
-			second[j] = toSplit[j + first.length];
-		}
-	}
-	
-	/**
-	 * Split int[] into two.
-	 * @param toSplit
-	 * @param first
-	 * @param second
-	 */
-	private void intArraySplit(int[] toSplit, int[] first, int[] second){
-		for (int i=0; i<first.length; i++){
-			first[i] = toSplit[i];
-		}
-		for (int j=0; j<second.length; j++){
-			second[j] = toSplit[j + first.length];
-		}
-	}
-	
-	/**
-	 * split generic array into two.
-	 * @param toSplit
-	 * @param first
-	 * @param second
-	 */
-	private <T> void splitArray(T[] toSplit, T[] first, T[] second){
-		for (int i=0; i<first.length; i++){
-			first[i] = toSplit[i];
-		}
-		for (int j=0; j<second.length; j++){
-			second[j] = toSplit[j + first.length];
-		}
-	}
-
 	/**
 	 * Helper function to update the parent pointer of a node.
 	 * 
@@ -680,6 +635,10 @@ public class BPlusTreeFile implements DbFile {
 		        // Move some of the tuples from the left sibling to the page so
 				// that the tuples are evenly distributed. Be sure to update
 				// the corresponding parent entry.
+				page.markDirty(true, tid);
+				leftSibling.markDirty(true, tid);
+				dirtypages.add(page);
+				dirtypages.add(leftSibling);
 				distributeTuples(parent, leftSibling, page, true);
 			}
 			dirtypages.add(leftSibling);
@@ -697,6 +656,10 @@ public class BPlusTreeFile implements DbFile {
 		        // Move some of the tuples from the right sibling to the page so
 				// that the tuples are evenly distributed. Be sure to update
 				// the corresponding parent entry.
+				page.markDirty(true, tid);
+				rightSibling.markDirty(true, tid);
+				dirtypages.add(page);
+				dirtypages.add(rightSibling);
 				distributeTuples(parent, page, rightSibling, false);
 			}
 			dirtypages.add(rightSibling);
@@ -740,10 +703,10 @@ public class BPlusTreeFile implements DbFile {
 		
 		// new field for updated parent entry
 		Field entryUpdateField = rightPage.iterator().next().getField(keyField);
-		BPlusTreeEntry newParentEntry = new BPlusTreeEntry(entryUpdateField, leftPage.getId(), to.getId());
+		BPlusTreeEntry newParentEntry = new BPlusTreeEntry(entryUpdateField, leftPage.getId(), rightPage.getId());
 		
 		BPlusTreeEntry entryToUpdate = null;
-		// find parent entry to udpate.
+		// find parent entry to update.
 		Iterator<BPlusTreeEntry> parentEntryIter = parentPage.iterator();
 		while (parentEntryIter.hasNext()){
 			BPlusTreeEntry currentEntry = parentEntryIter.next();
@@ -813,6 +776,10 @@ public class BPlusTreeFile implements DbFile {
 				// that the entries are evenly distributed. Be sure to update
 				// the corresponding parent entry. Be sure to update the parent
 				// pointers of all children in the entries that were moved.
+				page.markDirty(true, tid);
+				leftSibling.markDirty(true, tid);
+				dirtypages.add(page);
+				dirtypages.add(leftSibling);
 				distributeEntries(parent, leftSibling, page, true, leftEntry);
 				updateParentPointers(tid, parent, dirtypages);
 			}
@@ -832,6 +799,10 @@ public class BPlusTreeFile implements DbFile {
 				// that the entries are evenly distributed. Be sure to update
 				// the corresponding parent entry. Be sure to update the parent
 				// pointers of all children in the entries that were moved.
+				page.markDirty(true, tid);
+				rightSibling.markDirty(true, tid);
+				dirtypages.add(page);
+				dirtypages.add(rightSibling);
 				distributeEntries(parent, page, rightSibling, false, rightEntry);
 				updateParentPointers(tid, parent, dirtypages);
 			}
