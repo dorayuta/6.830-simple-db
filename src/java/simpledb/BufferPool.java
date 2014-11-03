@@ -1,8 +1,12 @@
 package simpledb;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -21,6 +25,7 @@ public class BufferPool {
     public static final int PAGE_SIZE = 4096;
 
     private static int pageSize = PAGE_SIZE;
+    private static final long DEADLOCK_TIMEOUT = 10000000000L;
     
     /** Default number of pages passed to the constructor. This is used by
     other classes. BufferPool should use the numPages argument to the
@@ -28,6 +33,10 @@ public class BufferPool {
     public static final int DEFAULT_PAGES = 50;
     private int numPages;
     private Map<PageId, Page> cache;
+    private Map<PageId, Set<TransactionId>> sharedLocksMap;
+    private Map<PageId, TransactionId> exclusiveLockMap;
+    private Map<TransactionId, Set<PageId>> transactionLocksMap;
+    
     /**
      * Creates a BufferPool that caches up to numPages pages.
      *
@@ -36,6 +45,9 @@ public class BufferPool {
     public BufferPool(int numPages) {
     	this.numPages = numPages;
         cache = new ConcurrentHashMap<PageId, Page>(numPages);
+        sharedLocksMap = new ConcurrentHashMap<PageId, Set<TransactionId>>();
+        exclusiveLockMap = new ConcurrentHashMap<PageId, TransactionId>();
+        transactionLocksMap = new ConcurrentHashMap<TransactionId, Set<PageId>>();
     }
     
     public static int getPageSize() {
@@ -64,6 +76,69 @@ public class BufferPool {
      */
     public  Page getPage(TransactionId tid, PageId pid, Permissions perm)
         throws TransactionAbortedException, DbException {
+    	if (perm.permLevel == Permissions.READ_ONLY.permLevel){
+    		// acquire shared lock
+    		long startTime = System.nanoTime();
+    		synchronized(exclusiveLockMap){
+    			while (exclusiveLockMap.containsKey(pid) && !exclusiveLockMap.get(pid).equals(tid)){
+    				// block
+    				// check timeout
+    				long elapsedTime = System.nanoTime() - startTime;
+    				if (elapsedTime > DEADLOCK_TIMEOUT){
+    					throw new TransactionAbortedException();
+    				}
+    			}
+	    		synchronized(sharedLocksMap){
+		    		if (!sharedLocksMap.containsKey(pid)){
+		    			sharedLocksMap.put(pid, new HashSet<TransactionId>());
+		    			sharedLocksMap.get(pid).add(tid);
+		    			if (!transactionLocksMap.containsKey(tid)){
+		    				transactionLocksMap.put(tid, new HashSet<PageId>());
+		    			}
+		    			transactionLocksMap.get(tid).add(pid);
+		    		}
+	    		}
+    		}
+    	} 
+    	else if (perm.permLevel == Permissions.READ_WRITE.permLevel){
+    		// block until can acquire exclusive lock
+    		synchronized(sharedLocksMap){
+        		long startTime = System.nanoTime();
+    			while (sharedLocksMap.containsKey(pid) && !sharedLocksMap.get(pid).isEmpty()){
+    				// if the only shared lock left is owned by the current transaction
+    				if (sharedLocksMap.get(pid).size() == 1 && sharedLocksMap.get(pid).contains(tid)){
+    					sharedLocksMap.get(pid).remove(tid);
+    					break;
+    				}
+    				// check timeout
+    				long elapsedTime = System.nanoTime() - startTime;
+    				if (elapsedTime > DEADLOCK_TIMEOUT){
+    					throw new TransactionAbortedException();
+    				}
+    			}
+        		startTime = System.nanoTime();
+	    		while (true){
+	    			synchronized(exclusiveLockMap){
+	    				if (exclusiveLockMap.containsKey(pid) && exclusiveLockMap.get(pid).equals(tid)){
+	    					break;
+	    				}
+	    				if (!exclusiveLockMap.containsKey(pid)){
+	    					exclusiveLockMap.put(pid, tid);
+	    	    			if (!transactionLocksMap.containsKey(tid)){
+	    	    				transactionLocksMap.put(tid, new HashSet<PageId>());
+	    	    			}
+	    	    			transactionLocksMap.get(tid).add(pid);
+	    	    			break;
+	    				}
+	    			}
+    				long elapsedTime = System.nanoTime() - startTime;
+    				if (elapsedTime > DEADLOCK_TIMEOUT){
+    					throw new TransactionAbortedException();
+    				}
+	    		}
+    		}
+    	}
+    	
         if (cache.containsKey(pid)){
         	return cache.get(pid);
         }
@@ -87,8 +162,18 @@ public class BufferPool {
      * @param pid the ID of the page to unlock
      */
     public  void releasePage(TransactionId tid, PageId pid) {
-        // some code goes here
-        // not necessary for lab1|lab2
+    	if (sharedLocksMap.containsKey(pid)){
+    		sharedLocksMap.get(pid).remove(tid);	
+    	}
+//    	synchronized(exclusiveLockMap){
+	    	if (exclusiveLockMap.containsKey(pid)){
+	    		exclusiveLockMap.remove(pid);
+	    	}
+//    	}
+    	// remove pid from list of locks that tid has.
+    	synchronized(transactionLocksMap){
+    		transactionLocksMap.get(tid).remove(pid);
+    	}
     }
 
     /**
@@ -97,15 +182,12 @@ public class BufferPool {
      * @param tid the ID of the transaction requesting the unlock
      */
     public void transactionComplete(TransactionId tid) throws IOException {
-        // some code goes here
-        // not necessary for lab1|lab2
+        transactionComplete(tid, true);
     }
 
     /** Return true if the specified transaction has a lock on the specified page */
     public boolean holdsLock(TransactionId tid, PageId p) {
-        // some code goes here
-        // not necessary for lab1|lab2
-        return false;
+        return transactionLocksMap.containsKey(tid) && transactionLocksMap.get(tid).contains(p);
     }
 
     /**
@@ -117,8 +199,38 @@ public class BufferPool {
      */
     public void transactionComplete(TransactionId tid, boolean commit)
         throws IOException {
-        // some code goes here
-        // not necessary for lab1|lab2
+
+    	// TODO - don't know what I'm doing here.
+    	if (transactionLocksMap.get(tid) == null){
+    		return;
+    	}
+    	synchronized (transactionLocksMap){
+	    	if (commit){
+	    		// flush all dirty pages
+	    		for (PageId pid: transactionLocksMap.get(tid)){
+	    			if (cache.containsKey(pid) && cache.get(pid).isDirty() != null){
+	    				flushPage(pid);
+	    			}
+	    		}
+	    	}
+	    	else{
+	    		// abort!!!!! no flush, reread
+	    		for (PageId pid: transactionLocksMap.get(tid)){
+	    			if (cache.containsKey(pid) && cache.get(pid).isDirty() != null){
+	    				cache.remove(pid);
+	    			}
+	    		}
+	    	}
+	    	
+	    	Set<PageId> newPidSet = new HashSet<PageId>();
+	    	for (PageId pid: transactionLocksMap.get(tid)){
+	    		newPidSet.add(pid);
+	    	}
+	    	// release all locks
+	    	for (PageId pid: newPidSet){
+	    		releasePage(tid, pid);
+	    	}
+    	}
     }
 
     /**
@@ -212,24 +324,30 @@ public class BufferPool {
     }
 
     /**	
-     * Discards a page from the buffer pool.
+     * Discards a page from the buffer pool. Must not evict a dirty page.
      * Flushes the page to disk to ensure dirty pages are updated on disk.
      */
     private synchronized  void evictPage() throws DbException {
         // some code goes here
         // not necessary for lab1
-    	PageId pageIdToEvict = cache.keySet().iterator().next();
-    	Page pageToEvict = cache.get(pageIdToEvict);
-    	try {
+    	Iterator<PageId> pageIdIter = cache.keySet().iterator();
+    	PageId pageIdToEvict;
+    	Page pageToEvict;
+    	boolean allDirty = true;
+    	
+    	while (pageIdIter.hasNext()){
+    		pageIdToEvict = pageIdIter.next();
+    		pageToEvict = cache.get(pageIdToEvict);
     		// if the page is dirty, flush it.
-    		if (pageToEvict.isDirty() != null){
-    			flushPage(pageIdToEvict);
+    		if (pageToEvict.isDirty() == null){
+    			cache.remove(pageIdToEvict);
+    			allDirty = false;
+    			break;
     		}
-			cache.remove(pageIdToEvict);
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
+    	}
+    	if (allDirty){
+    		throw new DbException("Unable to evict any non-dirty pages.");
+    	}
     }
 
 }
