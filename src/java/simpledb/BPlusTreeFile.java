@@ -256,7 +256,7 @@ public class BPlusTreeFile implements DbFile {
 			parentPageId = newRootPageId;
 		}
 		// get parent page from bufferpool.
-		BPlusTreeInternalPage parentPage = (BPlusTreeInternalPage) Database.getBufferPool().getPage(tid, parentPageId, Permissions.READ_ONLY);
+		BPlusTreeInternalPage parentPage = (BPlusTreeInternalPage) Database.getBufferPool().getPage(tid, parentPageId, Permissions.READ_WRITE);
 		dirtypages.add(parentPage);
 		
 		// split page to new page
@@ -386,7 +386,7 @@ public class BPlusTreeFile implements DbFile {
 		}
 		
 		// get parent page from bufferpool.
-		BPlusTreeInternalPage parentPage = (BPlusTreeInternalPage) Database.getBufferPool().getPage(tid, parentPageId, Permissions.READ_ONLY);
+		BPlusTreeInternalPage parentPage = (BPlusTreeInternalPage) Database.getBufferPool().getPage(tid, parentPageId, Permissions.READ_WRITE);
 		dirtypages.add(parentPage);
 		
 		// construct new page as left page.

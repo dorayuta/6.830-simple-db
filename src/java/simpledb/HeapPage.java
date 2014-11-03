@@ -291,8 +291,10 @@ public class HeapPage implements Page {
         if (!dirty){
         	unsetDirty();
         }
-        isDirty = true;
-        dirtiedTid = tid;
+        else {
+	        isDirty = true;
+	        dirtiedTid = tid;
+        }
     }
     
     /**
@@ -301,6 +303,7 @@ public class HeapPage implements Page {
      */
     public void unsetDirty(){
     	isDirty = false;
+    	dirtiedTid = null;
     }
 
     /**

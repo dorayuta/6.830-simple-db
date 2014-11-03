@@ -88,17 +88,16 @@ public class BufferPool {
     					throw new TransactionAbortedException();
     				}
     			}
-	    		synchronized(sharedLocksMap){
-		    		if (!sharedLocksMap.containsKey(pid)){
-		    			sharedLocksMap.put(pid, new HashSet<TransactionId>());
-		    			sharedLocksMap.get(pid).add(tid);
-		    			if (!transactionLocksMap.containsKey(tid)){
-		    				transactionLocksMap.put(tid, new HashSet<PageId>());
-		    			}
-		    			transactionLocksMap.get(tid).add(pid);
+    			if (exclusiveLockMap.containsKey(pid)){
+	    			// now nobody has the exclusive lock.
+		    		synchronized(sharedLocksMap){
+			    		if (!sharedLocksMap.containsKey(pid)){
+			    			sharedLocksMap.put(pid, new HashSet<TransactionId>());
+			    			sharedLocksMap.get(pid).add(tid);
+			    		}
 		    		}
-	    		}
-    		}
+    			}
+		}
     	} 
     	else if (perm.permLevel == Permissions.READ_WRITE.permLevel){
     		// block until can acquire exclusive lock
@@ -124,10 +123,7 @@ public class BufferPool {
 	    				}
 	    				if (!exclusiveLockMap.containsKey(pid)){
 	    					exclusiveLockMap.put(pid, tid);
-	    	    			if (!transactionLocksMap.containsKey(tid)){
-	    	    				transactionLocksMap.put(tid, new HashSet<PageId>());
-	    	    			}
-	    	    			transactionLocksMap.get(tid).add(pid);
+
 	    	    			break;
 	    				}
 	    			}
@@ -138,6 +134,10 @@ public class BufferPool {
 	    		}
     		}
     	}
+		if (!transactionLocksMap.containsKey(tid)){
+			transactionLocksMap.put(tid, new HashSet<PageId>());
+		}
+		transactionLocksMap.get(tid).add(pid);
     	
         if (cache.containsKey(pid)){
         	return cache.get(pid);
@@ -201,7 +201,7 @@ public class BufferPool {
         throws IOException {
 
     	// TODO - don't know what I'm doing here.
-    	if (transactionLocksMap.get(tid) == null){
+    	if (!transactionLocksMap.containsKey(tid)){
     		return;
     	}
     	synchronized (transactionLocksMap){
