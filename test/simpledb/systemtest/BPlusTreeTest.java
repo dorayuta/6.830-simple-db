@@ -17,6 +17,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 
 import org.junit.Test;
 import org.junit.Before;
+import org.junit.After;
 
 import simpledb.*;
 import simpledb.BPlusTreeUtility.*;
@@ -78,6 +79,13 @@ public class BPlusTreeTest extends SimpleDbTestBase {
 		return new int[]{item1, item2};
 	}
 	
+    @After
+    public void tearDown() throws Exception {
+	// set the page size back to the default
+	BufferPool.setPageSize(BufferPool.PAGE_SIZE);
+	Database.reset();
+    }
+
     /** Test that doing lots of inserts and deletes in multiple threads works */
     @Test public void testBigFile() throws Exception {
     	// For this test we will decrease the size of the Buffer Pool pages
