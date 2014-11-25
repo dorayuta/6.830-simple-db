@@ -104,14 +104,15 @@ public class JoinOptimizer {
             double cost1, double cost2) {
         if (j instanceof LogicalSubplanJoinNode) {
             // A LogicalSubplanJoinNode represents a subquery.
-            // You do not need to implement proper support for these for Lab 4.
+            // You do not need to implement proper support for these for Lab 5.
             return card1 + cost1 + cost2;
         } else {
             // Insert your code here.
             // HINT: You may need to use the variable "j" if you implemented
             // a join algorithm that's more complicated than a basic
             // nested-loops join.
-            return -1.0;
+        	// 1) scan of table1 + scan of table2 (card1 times) + cpu cost.	
+            return cost1 + card1 * cost2 + card1 * card2;
         }
     }
 
@@ -155,9 +156,25 @@ public class JoinOptimizer {
             String field2PureName, int card1, int card2, boolean t1pkey,
             boolean t2pkey, Map<String, TableStats> stats,
             Map<String, Integer> tableAliasToId) {
-        int card = 1;
+        int card = 1; 
         // some code goes here
-        return card <= 0 ? 1 : card;
+        if (joinOp.equals(Predicate.Op.EQUALS) || joinOp.equals(Predicate.Op.NOT_EQUALS)){
+        	if (t1pkey && t2pkey) {
+        		return Math.min(card1, card2);
+        	}
+        	else if (t1pkey){
+        		return card2;
+        	}
+        	else if (t2pkey){
+        		return card2;
+        	}
+        	else {
+        		return Math.max(card1, card2);
+        	}
+        }
+        // ranges
+       	// assumming 30% emmitted.
+        return (int) (0.7 * card1 * card2);
     }
 
     /**
@@ -217,11 +234,37 @@ public class JoinOptimizer {
             HashMap<String, TableStats> stats,
             HashMap<String, Double> filterSelectivities, boolean explain)
             throws ParsingException {
-        //Not necessary for labs 1--3
-
         // some code goes here
-        //Replace the following
-        return joins;
+		PlanCache planCache = new PlanCache();		
+    	for (int i=1; i <= joins.size(); i++){
+    		
+    		for (Set<LogicalJoinNode> nodeSet: enumerateSubsets(joins, i)){
+    			double bestCostSoFar = Float.POSITIVE_INFINITY;
+    			Vector<LogicalJoinNode> bestPlan = new Vector<LogicalJoinNode>();
+    			int bestCard = 0;
+    			Vector<LogicalJoinNode> nodeSetVector = new Vector<LogicalJoinNode>(nodeSet);
+    			
+    			for (Set<LogicalJoinNode> nodeSubset: enumerateSubsets(nodeSetVector, i-1)){
+    				// find what node to remove?
+    				LogicalJoinNode nodeToRemove = null;
+    				
+    				for (LogicalJoinNode node: nodeSet){
+    					if (!nodeSubset.contains(node)){
+    						nodeToRemove = node;
+    						break;
+    					}
+    				}
+    				CostCard costCard = computeCostAndCardOfSubplan(stats, filterSelectivities, nodeToRemove, nodeSet, bestCostSoFar, planCache);
+    				if (costCard != null && bestCostSoFar > costCard.cost ){
+    					bestCostSoFar = costCard.cost;
+    					bestPlan = costCard.plan;
+    					bestCard = costCard.card;
+    				}
+    			}
+    			planCache.addPlan(nodeSet, bestCostSoFar, bestCard, bestPlan);
+    		}
+    	}
+        return planCache.getOrder((Set<LogicalJoinNode>) joins);
     }
 
     // ===================== Private Methods =================================

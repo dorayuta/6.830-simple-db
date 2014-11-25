@@ -20,8 +20,48 @@ public class IntHistogram {
      * @param min The minimum integer value that will ever be passed to this class for histogramming
      * @param max The maximum integer value that will ever be passed to this class for histogramming
      */
+	private int[] histogram;
+	private float[] bucketEnds;
+	private final int buckets;
+	private final int min;
+	private final int max;
+	private final float bucketRange;
+	private final int range;
+	private int numTuples;
+	
+	
     public IntHistogram(int buckets, int min, int max) {
     	// some code goes here
+    	histogram = new int[buckets];
+    	bucketEnds = new float[buckets * 2];
+    	this.buckets = buckets;
+    	this.min = min;
+    	this.max = max;
+    	range = max - min;
+    	bucketRange = (float) range / buckets;
+    	makeBucketEnds();
+    	numTuples = 0;
+    }
+    
+    /**
+     * 
+     * @param value must be within min and max inclusive.
+     * @return
+     */
+    public int bucketNum(int value){
+    	if (value == max){
+    		return buckets-1;
+    	}
+    	// 0-indexed
+    	int bucketNum = (int) ((value - min) / bucketRange); 
+    	return bucketNum;
+    }
+    
+    public void makeBucketEnds(){
+    	for (int i=0; i<buckets; i++){
+    		bucketEnds[2*i] = min + bucketRange * i;
+    		bucketEnds[2*i+1] = min + bucketRange * (i+1);
+    	}
     }
 
     /**
@@ -29,7 +69,9 @@ public class IntHistogram {
      * @param v Value to add to the histogram
      */
     public void addValue(int v) {
-    	// some code goes here
+    	int bucketNum = bucketNum(v);
+    	histogram[bucketNum]++;
+    	numTuples++;
     }
 
     /**
@@ -43,9 +85,69 @@ public class IntHistogram {
      * @return Predicted selectivity of this particular operator and value
      */
     public double estimateSelectivity(Predicate.Op op, int v) {
-
-    	// some code goes here
-        return -1.0;
+    	float selection = 0;
+		int bucketNum = bucketNum(v);
+		float equalsFreq = 0;
+		if (v > min && v < max){
+			float numIntInRange = (float) (Math.floor(bucketEnds[bucketNum*2+1]) - Math.floor(bucketEnds[bucketNum*2]));
+			equalsFreq =  histogram[bucketNum] / numIntInRange; 
+		}
+    	
+		// special equals case.
+		if (op.equals(Predicate.Op.EQUALS)){
+			if (v < min || v > max){
+				return 0;
+			}
+    		selection += equalsFreq;
+    	}
+		
+		else if (op.equals(Predicate.Op.NOT_EQUALS)){
+			if (v < min || v > max){
+				return 1;
+			}
+    		selection += equalsFreq;
+    		return (1 - selection / numTuples);
+		}
+    	
+		else if (op.equals(Predicate.Op.GREATER_THAN) || op.equals(Predicate.Op.GREATER_THAN_OR_EQ)){
+			if (v > max){
+				return 0;
+			}
+			if (v < min){
+				return 1;
+			}
+			float high = bucketEnds[2*bucketNum + 1];
+    		float partFreq = histogram[bucketNum] * (high - v) / bucketRange;
+    		selection += partFreq;
+    		for (int i=buckets-1; i > bucketNum; i--){
+    			selection += histogram[i];
+    		}
+    		
+    		if (op.equals(Predicate.Op.GREATER_THAN_OR_EQ)){
+    			selection += equalsFreq;
+    		}
+			
+		}
+		
+		// less than / less than or equal to
+		else {
+			if (v > max){
+				return 1;
+			}
+			if (v < min){
+				return 0;
+			}
+			float low = bucketEnds[2*bucketNum];
+			float partFreq = histogram[bucketNum] * (v - low) / bucketRange;
+    		selection += partFreq;
+    		for (int i=0; i < bucketNum; i++){
+    			selection += histogram[i];
+    		}
+    		if (op.equals(Predicate.Op.LESS_THAN_OR_EQ)){
+    			selection += equalsFreq;
+    		}    		
+		}
+		return selection / numTuples;
     }
     
     /**
@@ -67,6 +169,6 @@ public class IntHistogram {
      */
     public String toString() {
         // some code goes here
-        return null;
+        return histogram.toString();
     }
 }
