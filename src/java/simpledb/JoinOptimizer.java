@@ -264,7 +264,7 @@ public class JoinOptimizer {
     			planCache.addPlan(nodeSet, bestCostSoFar, bestCard, bestPlan);
     		}
     	}
-        return planCache.getOrder((Set<LogicalJoinNode>) joins);
+        return planCache.getOrder(new HashSet<LogicalJoinNode>(joins));
     }
 
     // ===================== Private Methods =================================
@@ -443,7 +443,6 @@ public class JoinOptimizer {
     private boolean isPkey(String tableAlias, String field) {
         int tid1 = p.getTableId(tableAlias);
         String pkey1 = Database.getCatalog().getPrimaryKey(tid1);
-
         return pkey1.equals(field);
     }
 

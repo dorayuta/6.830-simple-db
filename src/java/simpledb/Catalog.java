@@ -109,7 +109,7 @@ public class Catalog {
         if (!tableExists(tableid)){
         	throw new NoSuchElementException("Table with tableid " + tableid + "doesn't exist.");
         }
-    	return pkeyFieldMap.get(tableid);
+    	return pkeyFieldMap.get(getTableName(tableid));
     }
 
     public Iterator<Integer> tableIdIterator() {
